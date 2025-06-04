@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple MCDA Tool</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 20px; font-family: Arial, sans-serif; }
+        .step { display: none; }
+        .step.active { display: block; }
+        .criteria-item { margin: 10px 0; }
+        button { padding: 10px 20px; margin: 10px; font-size: 16px; cursor: pointer; }
+        #map { height: 500px; width: 100%; margin: 20px 0; }
+        
+        /* Numbered marker styles */
+        .numbered-marker {
+            background-color: #3388ff;
+            border: 3px solid #ffffff;
+            border-radius: 50%;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .marker-number {
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            text-align: center;
+            line-height: 24px;
+            width: 24px;
+            height: 24px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Step 1: Choose Criteria -->
+    <div id="step1" class="step active">
+        <h1>Choose Criteria</h1>
+        <div class="criteria-item"><label><input type="checkbox" value="transport"> Public Transport</label></div>
+        <div class="criteria-item"><label><input type="checkbox" value="population"> Population Density</label></div>
+        <div class="criteria-item"><label><input type="checkbox" value="commercial"> Commercial Activity</label></div>
+        <div class="criteria-item"><label><input type="checkbox" value="green"> Green Spaces</label></div>
+        <div class="criteria-item"><label><input type="checkbox" value="traffic"> Traffic Flow</label></div>
+        <div class="criteria-item"><label><input type="checkbox" value="education"> Education</label></div>
+        <div class="criteria-item"><label><input type="checkbox" value="healthcare"> Healthcare</label></div>
+        <div class="criteria-item"><label><input type="checkbox" value="safety"> Safety</label></div>
+        
+        <button onclick="goToStep2()">Next: Pairwise Comparison</button>
+    </div>
+
+    <!-- Step 2: Pairwise Comparison -->
+    <div id="step2" class="step">
+        <h1>Pairwise Comparison</h1>
+        <div id="selected-criteria"></div>
+        <p>Here you will implement RANCOM pairwise comparison</p>
+        <button onclick="goToStep3()">Next: Select Points on Map</button>
+    </div>
+
+    <!-- Step 3: Map -->
+    <div id="step3" class="step">
+        <h1>Select Points</h1>
+        <button onclick="clearPoints()">Clear</button>
+        <button onclick="savePoints()">Save to CSV</button>
+        <span id="pointCount">Points: 0</span>
+        <div id="map"></div>
+        <div id="status"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let selectedCriteria = [];
+        let points = [];
+        let markers = [];
+        let map;
+
+        // Step 1 to 2
+        function goToStep2() {
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]:checked');
+            selectedCriteria = Array.from(checkboxes).map(cb => cb.value);
+            
+            document.getElementById('selected-criteria').innerHTML = 
+                '<p>Selected: ' + selectedCriteria.join(', ') + '</p>';
+            
+            showStep(2);
+        }
+
+        // Step 2 to 3
+        function goToStep3() {
+            showStep(3); // Najpierw pokaż kontener
+            if (!map) { // Inicjalizuj mapę tylko jeśli jeszcze nie istnieje
+                initMap();
+            } else {
+                // Jeśli mapa już była, a tylko krok był zmieniany
+                setTimeout(function() {
+                    map.invalidateSize();
+                }, 100);
+            }
+        }
+
+        // Create numbered marker
+        function createNumberedMarker(lat, lng, number) {
+            const icon = L.divIcon({
+                className: 'numbered-marker',
+                html: `<div class="marker-number">${number}</div>`,
+                iconSize: [30, 30],
+                iconAnchor: [15, 30]
+            });
+            return L.marker([lat, lng], { icon: icon });
+        }
+
+        // Initialize map
+        function initMap() {
+                    // Jeśli mapa już istnieje, nie inicjalizuj jej ponownie
+                    // (choć w Twoim obecnym przepływie to się nie zdarzy, ale to dobra praktyka)
+                    if (map) {
+                        // Jeśli mapa była już zainicjalizowana, a tylko ukryta,
+                        // wystarczy invalidateSize po jej ponownym pokazaniu.
+                        // Ale w Twoim kodzie initMap jest wołane tylko raz.
+                        // map.invalidateSize();
+                        // return;
+                    }
+
+                    map = L.map('map').setView([52.2297, 21.0122], 12);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '© OpenStreetMap contributors' // Dodaj atrybucję!
+                    }).addTo(map);
+
+                    map.on('click', function(e) {
+                        const number = points.length + 1;
+                        const marker = createNumberedMarker(e.latlng.lat, e.latlng.lng, number);
+                        marker.addTo(map);
+                        marker.bindPopup(`Point ${number}<br>Lat: ${e.latlng.lat.toFixed(6)}<br>Lng: ${e.latlng.lng.toFixed(6)}`);
+
+                        points.push({
+                            point_number: number,
+                            latitude: e.latlng.lat,
+                            longitude: e.latlng.lng
+                        });
+                        markers.push(marker);
+
+                        document.getElementById('pointCount').textContent = `Points: ${points.length}`;
+                    });
+
+                    // ---- WAŻNA ZMIANA TUTAJ ----
+                    // Daj Leafletowi znać o rozmiarze kontenera po tym, jak stał się widoczny.
+                    // Użyj setTimeout, aby dać przeglądarce chwilę na przeliczenie layoutu.
+                    setTimeout(function() {
+                        if (map) { // Sprawdź, czy mapa na pewno istnieje
+                            map.invalidateSize();
+                        }
+                    }, 100); // 100 milisekund powinno wystarczyć, czasem nawet 0 działa.
+                }
+
+        // Clear points
+        function clearPoints() {
+            markers.forEach(marker => map.removeLayer(marker));
+            points = [];
+            markers = [];
+            document.getElementById('pointCount').textContent = 'Points: 0';
+        }
+
+        // Save to CSV
+        function savePoints() {
+            fetch('/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    points: points,
+                    criteria: selectedCriteria 
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('status').textContent = 
+                    data.success ? `Saved to ${data.filename}` : `Error: ${data.error}`;
+            });
+        }
+
+        // Show step
+        function showStep(stepNumber) {
+            document.querySelectorAll('.step').forEach(step => step.classList.remove('active'));
+            document.getElementById(`step${stepNumber}`).classList.add('active');
+        }
+    </script>
+</body>
+</html>
