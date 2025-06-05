@@ -49,7 +49,10 @@
     <div id="step2" class="step">
         <h1>Pairwise Comparison</h1>
         <div id="selected-criteria"></div>
-        <p>Here you will implement RANCOM pairwise comparison</p>
+        <div id="pairwise-container"></div>
+        <h2>Criterion Locations</h2>
+        <div id="locations-container"></div>
+        <div id="criteria-map" style="height:400px;margin-top:10px"></div>
         <button onclick="goToStep3()">Next: Select Points on Map</button>
     </div>
 
@@ -58,39 +61,105 @@
         <h1>Select Points</h1>
         <button onclick="clearPoints()">Clear</button>
         <button onclick="savePoints()">Save to CSV</button>
+        <button onclick="rankPoints()">Rank Points</button>
         <span id="pointCount">Points: 0</span>
         <div id="map"></div>
         <div id="status"></div>
+        <div id="ranking"></div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         let selectedCriteria = [];
+        let pairwise = {};
+        let criteriaLocations = {};
         let points = [];
         let markers = [];
         let map;
+        let criteriaMap;
+        let criteriaMarkers = {};
+        let currentCriterion = null;
+
+        function initCriteriaMap() {
+            if (criteriaMap) {
+                setTimeout(() => criteriaMap.invalidateSize(), 100);
+                return;
+            }
+            criteriaMap = L.map('criteria-map').setView([52.2297, 21.0122], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(criteriaMap);
+
+            criteriaMap.on('click', function(e) {
+                if(currentCriterion){
+                    if(criteriaMarkers[currentCriterion]){
+                        criteriaMap.removeLayer(criteriaMarkers[currentCriterion]);
+                    }
+                    const marker = L.marker(e.latlng).addTo(criteriaMap);
+                    criteriaMarkers[currentCriterion] = marker;
+                    criteriaLocations[currentCriterion] = {latitude: e.latlng.lat, longitude: e.latlng.lng};
+                    document.getElementById(`loc-${currentCriterion}-txt`).textContent = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+                    currentCriterion = null;
+                }
+            });
+        }
+
+        function startSetLocation(c){
+            currentCriterion = c;
+            alert('Click on the map to set location for ' + c);
+        }
 
         // Step 1 to 2
         function goToStep2() {
             const checkboxes = document.querySelectorAll('input[type="checkbox"]:checked');
             selectedCriteria = Array.from(checkboxes).map(cb => cb.value);
-            
-            document.getElementById('selected-criteria').innerHTML = 
+
+            document.getElementById('selected-criteria').innerHTML =
                 '<p>Selected: ' + selectedCriteria.join(', ') + '</p>';
-            
+            const container = document.getElementById('pairwise-container');
+            container.innerHTML = '';
+            const locContainer = document.getElementById('locations-container');
+            locContainer.innerHTML = '';
+            pairwise = {};
+            criteriaLocations = {};
+            criteriaMarkers = {};
+            for (let i = 0; i < selectedCriteria.length; i++) {
+                for (let j = i + 1; j < selectedCriteria.length; j++) {
+                    const c1 = selectedCriteria[i];
+                    const c2 = selectedCriteria[j];
+                    const div = document.createElement('div');
+                    div.innerHTML = `${c1} vs ${c2}: ` +
+                        `<label><input type="radio" name="${c1}_${c2}" value="${c1}"> ${c1}</label>` +
+                        `<label><input type="radio" name="${c1}_${c2}" value="equal"> = </label>` +
+                        `<label><input type="radio" name="${c1}_${c2}" value="${c2}"> ${c2}</label>`;
+                    container.appendChild(div);
+                }
+            }
+
+            selectedCriteria.forEach(c => {
+                const div = document.createElement('div');
+                div.innerHTML = `${c}: <span id="loc-${c}-txt">Not set</span> ` +
+                                 `<button onclick="startSetLocation('${c}')">Set on Map</button>`;
+                locContainer.appendChild(div);
+            });
+            initCriteriaMap();
+
             showStep(2);
         }
 
         // Step 2 to 3
         function goToStep3() {
-            showStep(3); // Najpierw pokaż kontener
-            if (!map) { // Inicjalizuj mapę tylko jeśli jeszcze nie istnieje
+            document.querySelectorAll('#pairwise-container input[type="radio"]:checked').forEach(r => {
+                const key = r.name;
+                pairwise[key] = r.value;
+            });
+            // locations already filled via map clicks
+            currentCriterion = null;
+            showStep(3);
+            if (!map) {
                 initMap();
             } else {
-                // Jeśli mapa już była, a tylko krok był zmieniany
-                setTimeout(function() {
-                    map.invalidateSize();
-                }, 100);
+                setTimeout(function() { map.invalidateSize(); }, 100);
             }
         }
 
@@ -161,15 +230,37 @@
             fetch('/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     points: points,
-                    criteria: selectedCriteria 
+                    criteria: selectedCriteria,
+                    locations: criteriaLocations
                 })
             })
             .then(response => response.json())
             .then(data => {
-                document.getElementById('status').textContent = 
+                document.getElementById('status').textContent =
                     data.success ? `Saved to ${data.filename}` : `Error: ${data.error}`;
+            });
+        }
+
+        function rankPoints() {
+            fetch('/rank', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    points: points,
+                    criteria: selectedCriteria,
+                    pairwise: pairwise,
+                    locations: criteriaLocations
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if(data.success){
+                    document.getElementById('ranking').textContent = 'Ranking: ' + data.ranking.join(', ');
+                } else {
+                    document.getElementById('ranking').textContent = 'Error ranking points';
+                }
             });
         }
 
