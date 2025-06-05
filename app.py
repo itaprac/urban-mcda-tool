@@ -1,12 +1,14 @@
 from flask import Flask, request, jsonify
 import pandas as pd
 from datetime import datetime
+import os
 
 app = Flask(__name__)
 
 @app.route('/')
 def index():
-    with open('index.html', 'r') as f:
+    index_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html')
+    with open(index_path, 'r') as f:
         return f.read()
 
 @app.route('/save', methods=['POST'])
